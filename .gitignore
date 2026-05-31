@@ -8,3 +8,7 @@ wheels/
 *.pdparams
 # Virtual environments
 .venv
+CLAUDE.md
+*.mp4
+*.jpg
+*.json
