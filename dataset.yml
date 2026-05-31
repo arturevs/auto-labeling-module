@@ -1,0 +1,23 @@
+# arquivo de configuração do dataset
+metric: COCO
+num_classes: 1
+use_default_label: true
+
+TrainDataset:
+    name: COCODataSet
+    dataset_dir: datasets/placa
+    anno_path: train/_annotations.coco.json
+    image_dir: train
+    data_fields: ['image', 'gt_bbox', 'gt_class', 'is_crowd']
+
+EvalDataset:
+  # !CocoDataset
+    name: COCODataSet
+    dataset_dir: datasets/placa
+    anno_path: valid/_annotations.coco.json
+    image_dir: valid
+
+TestDataset:
+  # !ImageFolder
+    name: ImageFolder
+    anno_path: datasets/placa/valid/_annotations.coco.json

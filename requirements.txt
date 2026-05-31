@@ -1,0 +1,24 @@
+# Dependências diretas do auto-labeling-module
+# O ambiente do treinamento-paddle-rtdetr já inclui a maioria destas.
+
+# leitura de vídeo e imagem
+opencv-python<=4.6.0
+Pillow
+
+# dhash (deduplicação de frames)
+numpy<2.0
+
+# --- Dependências herdadas do predictor (treinamento-paddle-rtdetr) ---
+# PyYAML
+# typeguard
+# pycocotools==2.0.8
+# tqdm
+# scipy
+# shapely
+# terminaltables
+# packaging
+
+# PaddlePaddle deve ser instalado separadamente:
+#   CPU : pip install paddlepaddle
+#   GPU : pip install paddlepaddle-gpu \
+#             --extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cu118/

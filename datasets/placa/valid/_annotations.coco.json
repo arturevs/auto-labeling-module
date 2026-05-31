@@ -1,0 +1,9 @@
+{
+  "info": {"description": "placa category stub — used only for category mapping during inference"},
+  "licenses": [],
+  "categories": [
+    {"id": 1, "name": "placa", "supercategory": ""}
+  ],
+  "images": [],
+  "annotations": []
+}

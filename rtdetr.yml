@@ -1,0 +1,33 @@
+_BASE_: [
+  # base
+  '../../../base_configs/rtdetr/_base_/rtdetr_r50vd.yml',
+  '../../../base_configs/rtdetr/_base_/rtdetr_reader.yml',
+  '../../../base_configs/runtime.yml',
+  # custom
+  '../datasets/dataset.yml',
+  '../_base_/optimizer_road.yml'
+]
+
+exclude_nms: False
+exclude_post_process: False 
+
+# ------ para converter para onnx mude para este ------
+# exclude_post_process: True
+# -----------------------------------------------------
+
+save_dir: output/placa_v1
+log_iter: 100
+snapshot_epoch: 1
+is_train: True
+
+weights: output/placa_v1/best_model.pdparams
+# pesos do coco
+pretrain_weights: https://bj.bcebos.com/v1/paddledet/models/rtdetr_r50vd_6x_coco.pdparams
+
+TrainReader:
+  batch_size: 8
+  shuffle: true
+  drop_last: true
+
+EvalReader:
+  batch_size: 1
