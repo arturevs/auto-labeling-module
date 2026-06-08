@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <style>* { margin: 0; padding: 0; } body { overflow: hidden; background: transparent; }</style>
+  </head>
+  <body>
+    <script>
+      const LABEL_KEYS = new Set(["w", "a", "s", "d"]);
+      const NAV_KEYS   = new Set(["ArrowLeft", "ArrowRight"]);
+      let seq = 0;
+
+      function postParent(type, data) {
+        window.parent.postMessage({ type, ...data }, "*");
+      }
+
+      function sendKey(key) {
+        seq++;
+        postParent("streamlit:setComponentValue", { value: { key, seq } });
+      }
+
+      function onKeydown(event) {
+        const tag = (event.target.tagName || "").toLowerCase();
+        // Não intercepta quando o usuário digita em campos de texto
+        if (tag === "input" || tag === "textarea" || event.target.isContentEditable) return;
+        if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+        const key = event.key;
+        const lower = key.toLowerCase();
+        if (!LABEL_KEYS.has(lower) && !NAV_KEYS.has(key)) return;
+
+        event.preventDefault();
+        sendKey(LABEL_KEYS.has(lower) ? lower : key);
+      }
+
+      // Estratégia 1: escuta no documento pai (mesma origem — Streamlit serve tudo em localhost).
+      // Funciona independente de qual elemento tem foco.
+      let onParent = false;
+      try {
+        const pd = (window.parent !== window) ? window.parent.document : null;
+        if (pd) {
+          pd.addEventListener("keydown", onKeydown, true);
+          onParent = true;
+          console.log("[relabeler-keyboard] ouvindo no documento PAI ✓");
+        }
+      } catch (e) {
+        console.warn("[relabeler-keyboard] acesso ao documento pai bloqueado:", e.message);
+      }
+
+      // Estratégia 2: fallback — escuta no documento próprio + tenta manter foco
+      document.addEventListener("keydown", onKeydown, true);
+      if (!onParent) {
+        console.warn("[relabeler-keyboard] fallback: ouvindo no documento PRÓPRIO (requer foco)");
+      }
+
+      // Protocolo Streamlit
+      window.addEventListener("message", (ev) => {
+        if (ev.data?.type !== "streamlit:render") return;
+        postParent("streamlit:setFrameHeight", { height: 1 });
+        // Fallback: tenta roubar foco quando não consegue ouvir o documento pai
+        if (!onParent) window.focus();
+      });
+
+      postParent("streamlit:componentReady", { apiVersion: 1 });
+      postParent("streamlit:setFrameHeight", { height: 1 });
+    </script>
+  </body>
+</html>

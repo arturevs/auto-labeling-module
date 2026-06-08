@@ -14,9 +14,65 @@ from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 from PIL import Image
 
 LABELS_DIR = Path(__file__).parent / "labels"
+HOTKEY_LABELS = {
+    "w": "R-1",
+    "a": "R-19",
+    "s": "R-6a",
+    "d": "R-6b",
+}
+
+# JavaScript injetado via st.components.v1.html() que escuta no documento pai
+# (mesmo origem: Streamlit serve tudo em localhost) e clica nos botões nativos.
+# Dessa forma não depende do protocolo setComponentValue nem de foco no iframe.
+KEYBOARD_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"></head><body><script>
+(function () {
+  // Remove listener anterior se este script rodar novamente
+  if (window.parent._rlkb) {
+    try { window.parent.document.removeEventListener("keydown", window.parent._rlkb, true); } catch(e) {}
+  }
+
+  var MAP = {
+    "w":          "W · R-1",
+    "a":          "A · R-19",
+    "s":          "S · R-6a",
+    "d":          "D · R-6b",
+    "arrowleft":  "Anterior",
+    "arrowright": "Próxima",
+    "enter":      "Salvar"
+  };
+
+  function clickBtn(text) {
+    var btns = window.parent.document.querySelectorAll("button");
+    for (var i = 0; i < btns.length; i++) {
+      var b = btns[i];
+      if (!b.disabled && b.textContent.includes(text)) { b.click(); return; }
+    }
+  }
+
+  function onKey(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    var tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
+    var label = MAP[e.key.toLowerCase()];
+    if (!label) return;
+    e.preventDefault();
+    clickBtn(label);
+  }
+
+  try {
+    window.parent.document.addEventListener("keydown", onKey, true);
+    window.parent._rlkb = onKey;
+    console.log("[relabeler] atalhos de teclado ativos ✓");
+  } catch (err) {
+    console.error("[relabeler] teclado falhou:", err.message);
+  }
+})();
+</script></body></html>"""
 
 
 # ── Dados ─────────────────────────────────────────────────────────────────────
@@ -130,6 +186,89 @@ def crop_bbox(img: Image.Image, bbox: list[float], padding: float = 0.15) -> Ima
     return img.crop((x1, y1, x2, y2))
 
 
+def first_unclassified_index(all_anns: list[dict], confirmed_ids: set[int]) -> int:
+    """Retorna o índice da primeira anotação ainda sem classificação."""
+    for i, ann in enumerate(all_anns):
+        if ann["id"] not in confirmed_ids:
+            return i
+    return 0
+
+
+def next_unclassified_index(
+    all_anns: list[dict],
+    confirmed_ids: set[int],
+    start_index: int,
+) -> int:
+    """Avança até a próxima anotação sem classificação, se houver."""
+    if not all_anns:
+        return 0
+
+    bounded_start = min(max(start_index, 0), len(all_anns) - 1)
+    for i in range(bounded_start, len(all_anns)):
+        if all_anns[i]["id"] not in confirmed_ids:
+            return i
+    return bounded_start
+
+
+
+
+def render_hotkey_reference(
+    labels_by_name: dict[str, str],
+    selected: str | None,
+) -> None:
+    """Mostra as quatro placas mais comuns com a tecla associada."""
+    available_shortcuts = [
+        (key.upper(), label, labels_by_name[label])
+        for key, label in HOTKEY_LABELS.items()
+        if label in labels_by_name
+    ]
+    if not available_shortcuts:
+        return
+
+    st.markdown("**Atalhos rápidos**")
+    grid = st.columns(2, gap="small")
+    for i, (key, label, img_label_path) in enumerate(available_shortcuts):
+        with grid[i % 2]:
+            is_sel = selected == label
+            with st.container(border=is_sel):
+                st.image(img_label_path, use_container_width=True)
+                if st.button(
+                    f"{key} · {label}",
+                    key=f"hotkey_btn_{label}",
+                    type="primary" if is_sel else "secondary",
+                    use_container_width=True,
+                ):
+                    st.session_state.selected_label = label
+                    st.rerun()
+
+
+def get_confirmed_annotations(output: dict | None, all_ann_ids: set[int]) -> tuple[dict[int, dict], int]:
+    """Indexa anotações confirmadas e conta registros fora do COCO atual."""
+    if output is None:
+        return {}, 0
+
+    confirmed: dict[int, dict] = {}
+    orphan_count = 0
+    for ann in output.get("annotations", []):
+        ann_id = ann.get("id")
+        if ann_id not in all_ann_ids:
+            orphan_count += 1
+            continue
+        confirmed[ann_id] = ann
+    return confirmed, orphan_count
+
+
+def category_name_by_id(coco_like: dict | None) -> dict[int, str]:
+    """Cria mapa category_id -> nome para um COCO de entrada ou saída."""
+    if coco_like is None:
+        return {}
+    return {
+        cat["id"]: cat["name"]
+        for cat in coco_like.get("categories", [])
+        if "id" in cat and "name" in cat
+    }
+
+
 def export_dataset(out_path: Path, images_dir: Path) -> None:
     """Exporta o dataset final para ``<out_path.parent>/dataset/``.
 
@@ -177,20 +316,42 @@ def main() -> None:
         st.stop()
 
     label2catid = {name: i + 1 for i, (name, _) in enumerate(labels)}
+    labels_by_name = dict(labels)
 
     # ── Sidebar ───────────────────────────────────────────────────────────────
     with st.sidebar:
         st.header("Entrada")
         coco_input = st.text_input(
             "Arquivo COCO",
-            value="output/annotations.coco.json",
+            value="datasets/mapillary_traffic_sign_r_type_v2/train/_annotations.coco_relabeled.json",
             help="Caminho relativo ao diretório onde você executa o streamlit",
         )
-        images_input = st.text_input("Pasta de imagens", value="output/images")
+        images_input = st.text_input("Pasta de imagens", value="datasets/mapillary_traffic_sign_r_type_v2/train")
 
         coco_path   = Path(coco_input)
         images_dir  = Path(images_input)
-        out_path    = coco_path.parent / (coco_path.stem + "_relabeled.json")
+        if coco_path.stem.endswith("_relabeled"):
+            out_path = coco_path
+        else:
+            out_path = coco_path.parent / (coco_path.stem + "_relabeled.json")
+
+        st.divider()
+        st.markdown("**Ir para anotação**")
+        jump_col1, jump_col2 = st.columns([3, 1])
+        with jump_col1:
+            jump_to = st.number_input(
+                "jump",
+                min_value=1,
+                step=1,
+                value=st.session_state.get("current_ann_index", 0) + 1,
+                label_visibility="collapsed",
+                key="jump_input",
+            )
+        with jump_col2:
+            if st.button("Ir", key="jump_btn", use_container_width=True):
+                st.session_state.current_ann_index = int(jump_to) - 1
+                st.session_state.selected_ann_id = None
+                st.rerun()
 
         st.divider()
         st.caption(f"Saída: `{out_path}`")
@@ -218,15 +379,26 @@ def main() -> None:
         st.stop()
 
     # ── Carrega COCO de entrada ───────────────────────────────────────────────
-    coco      = load_coco(str(coco_path))
+    selected_coco = load_coco(str(coco_path))
+    review_coco_path = coco_path
+    coco = selected_coco
+    if coco_path.stem.endswith("_relabeled"):
+        source_coco = selected_coco.get("info", {}).get("source_coco")
+        if source_coco:
+            source_path = Path(source_coco)
+            if source_path.exists():
+                review_coco_path = source_path
+                coco = load_coco(str(review_coco_path))
+
     imgid2meta = {img["id"]: img for img in coco["images"]}
     all_anns  = coco["annotations"]
+    all_ann_ids = {ann["id"] for ann in all_anns}
 
     # ── Resume: IDs já confirmados estão no arquivo de saída ─────────────────
     output = load_output(out_path)
     if output is not None:
         stored_source = output.get("info", {}).get("source_coco")
-        if stored_source is not None and stored_source != str(coco_path):
+        if out_path != coco_path and stored_source is not None and stored_source != str(review_coco_path):
             st.warning(
                 f"O arquivo `{out_path.name}` foi gerado de outro COCO "
                 f"(`{stored_source}`). Escolha um nome de saída diferente "
@@ -234,15 +406,33 @@ def main() -> None:
             )
             st.stop()
 
-    confirmed_ids: set[int] = (
-        {ann["id"] for ann in output["annotations"]} if output else set()
-    )
+    confirmed_anns_by_id, orphan_output_count = get_confirmed_annotations(output, all_ann_ids)
+    confirmed_ids = set(confirmed_anns_by_id)
+    output_catid2name = category_name_by_id(output)
+    label_catid2name = {catid: name for name, catid in label2catid.items()}
 
     # IDs pulados ficam em session_state (memória da sessão)
     if "skipped_ids" not in st.session_state:
         st.session_state.skipped_ids: set[int] = set()
     if "selected_label" not in st.session_state:
         st.session_state.selected_label: str | None = None
+    if "current_ann_index" not in st.session_state:
+        st.session_state.current_ann_index = 0
+    if "selected_ann_id" not in st.session_state:
+        st.session_state.selected_ann_id: int | None = None
+    dataset_state_key = f"{review_coco_path}|{out_path}"
+    if st.session_state.get("dataset_state_key") != dataset_state_key:
+        st.session_state.dataset_state_key = dataset_state_key
+        st.session_state.current_ann_index = first_unclassified_index(all_anns, confirmed_ids)
+        st.session_state.selected_ann_id = None
+        st.session_state.selected_label = None
+        st.session_state.skipped_ids = set()
+
+    components.html(KEYBOARD_HTML, height=0)
+    st.session_state.current_ann_index = min(
+        max(st.session_state.current_ann_index, 0),
+        max(len(all_anns) - 1, 0),
+    )
     # Descarta seleção obsoleta caso o diretório de labels tenha mudado
     if st.session_state.selected_label is not None and st.session_state.selected_label not in label2catid:
         st.session_state.selected_label = None
@@ -261,22 +451,43 @@ def main() -> None:
         f"**{len(st.session_state.skipped_ids)}** puladas  •  "
         f"**{len(pending)}** pendentes"
     )
+    if orphan_output_count:
+        st.caption(
+            f"`{out_path.name}` contém {orphan_output_count} anotação(ões) "
+            "que não aparecem no COCO atual."
+        )
 
-    if not pending:
-        st.success("Todas as anotações foram processadas!")
+    if not all_anns:
+        st.success("Nenhuma anotação encontrada no COCO.")
         st.stop()
 
     # ── Anotação atual ────────────────────────────────────────────────────────
-    ann       = pending[0]
+    ann       = all_anns[st.session_state.current_ann_index]
     img_meta  = imgid2meta[ann["image_id"]]
     img_path  = images_dir / img_meta["file_name"]
     score     = ann.get("score")
+    confirmed_ann = confirmed_anns_by_id.get(ann["id"])
+    confirmed_label = None
+    if confirmed_ann is not None:
+        confirmed_label = output_catid2name.get(
+            confirmed_ann.get("category_id"),
+            label_catid2name.get(confirmed_ann.get("category_id")),
+        )
+    if st.session_state.selected_ann_id != ann["id"]:
+        st.session_state.selected_label = confirmed_label if confirmed_label in label2catid else None
+        st.session_state.selected_ann_id = ann["id"]
     selected  = st.session_state.selected_label
+    image_ann_ids = [
+        image_ann["id"]
+        for image_ann in all_anns
+        if image_ann["image_id"] == ann["image_id"]
+    ]
+    image_confirmed_count = sum(1 for ann_id in image_ann_ids if ann_id in confirmed_ids)
 
     st.divider()
 
-    # ── Linha superior: crop + info + botões ─────────────────────────────────
-    col_crop, col_info = st.columns([3, 2], gap="large")
+    # ── Linha superior: crop + atalhos + info + botões ───────────────────────
+    col_crop, col_hotkeys, col_info = st.columns([3, 2, 2], gap="large")
 
     with col_crop:
         if img_path.exists():
@@ -286,7 +497,25 @@ def main() -> None:
         else:
             st.error(f"Imagem não encontrada: `{img_path}`")
 
+    with col_hotkeys:
+        render_hotkey_reference(labels_by_name, selected)
+
     with col_info:
+        is_confirmed = confirmed_ann is not None
+        is_skipped = ann["id"] in st.session_state.skipped_ids
+
+        st.markdown(f"**Anotação:** `{st.session_state.current_ann_index + 1}/{total}`")
+        if is_confirmed:
+            st.success(f"Classificada: **{confirmed_label or 'categoria desconhecida'}**")
+        elif is_skipped:
+            st.warning("Pulada nesta sessão")
+        else:
+            st.info("Ainda não classificada")
+        st.caption(
+            f"Imagem: **{image_confirmed_count}/{len(image_ann_ids)}** "
+            "anotação(ões) classificadas"
+        )
+
         st.markdown(f"**Imagem:** `{img_meta['file_name']}`")
         st.markdown(f"**Anotação ID:** `{ann['id']}`")
         bbox_r = [round(v) for v in ann["bbox"]]
@@ -298,9 +527,31 @@ def main() -> None:
 
         st.divider()
 
+        nav_prev, nav_next = st.columns(2)
+        with nav_prev:
+            if st.button(
+                "← Anterior",
+                disabled=(st.session_state.current_ann_index == 0),
+                use_container_width=True,
+            ):
+                st.session_state.current_ann_index -= 1
+                st.session_state.selected_ann_id = None
+                st.rerun()
+        with nav_next:
+            if st.button(
+                "Próxima →",
+                disabled=(st.session_state.current_ann_index >= total - 1),
+                use_container_width=True,
+            ):
+                st.session_state.current_ann_index += 1
+                st.session_state.selected_ann_id = None
+                st.rerun()
+
+        st.divider()
+
         if selected:
             st.success(f"Selecionado: **{selected}**")
-            label_img_path = dict(labels)[selected]
+            label_img_path = labels_by_name[selected]
             st.image(label_img_path, width=100)
         else:
             st.info("Selecione uma classe no grid abaixo")
@@ -310,30 +561,48 @@ def main() -> None:
         btn_confirm, btn_skip = st.columns(2)
         with btn_confirm:
             if st.button(
-                "✔ Confirmar",
+                "✔ Salvar classificação",
                 disabled=(selected is None),
                 type="primary",
                 use_container_width=True,
             ):
-                out_data = output if output is not None else make_empty_output(labels, str(coco_path))
+                out_data = output if output is not None else make_empty_output(labels, str(review_coco_path))
 
                 existing_img_ids = {img["id"] for img in out_data["images"]}
                 if img_meta["id"] not in existing_img_ids:
                     out_data["images"].append(dict(img_meta))
 
+                out_data["annotations"] = [
+                    saved_ann
+                    for saved_ann in out_data["annotations"]
+                    if saved_ann.get("id") != ann["id"]
+                ]
                 out_data["annotations"].append({
                     **ann,
                     "category_id": label2catid[selected],
                 })
                 save_output(out_data, out_path)
 
+                st.session_state.skipped_ids.discard(ann["id"])
                 st.session_state.selected_label = None
+                st.session_state.selected_ann_id = None
+                st.session_state.current_ann_index = next_unclassified_index(
+                    all_anns,
+                    confirmed_ids | {ann["id"]},
+                    st.session_state.current_ann_index + 1,
+                )
                 st.rerun()
 
         with btn_skip:
             if st.button("⏭ Pular", use_container_width=True):
                 st.session_state.skipped_ids.add(ann["id"])
                 st.session_state.selected_label = None
+                st.session_state.selected_ann_id = None
+                st.session_state.current_ann_index = next_unclassified_index(
+                    all_anns,
+                    processed_ids | {ann["id"]},
+                    st.session_state.current_ann_index + 1,
+                )
                 st.rerun()
 
     # ── Grid de labels 5 colunas ──────────────────────────────────────────────
