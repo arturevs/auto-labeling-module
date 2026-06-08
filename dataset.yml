@@ -5,7 +5,7 @@ use_default_label: true
 
 TrainDataset:
     name: COCODataSet
-    dataset_dir: datasets/placa
+    dataset_dir: datasets/mapillary_traffic_sign_r_type_v2
     anno_path: train/_annotations.coco.json
     image_dir: train
     data_fields: ['image', 'gt_bbox', 'gt_class', 'is_crowd']
@@ -13,11 +13,11 @@ TrainDataset:
 EvalDataset:
   # !CocoDataset
     name: COCODataSet
-    dataset_dir: datasets/placa
+    dataset_dir: datasets/mapillary_traffic_sign_r_type_v2
     anno_path: valid/_annotations.coco.json
     image_dir: valid
 
 TestDataset:
   # !ImageFolder
     name: ImageFolder
-    anno_path: datasets/placa/valid/_annotations.coco.json
+    anno_path: datasets/mapillary_traffic_sign_r_type_v2/test/_annotations.coco.json
