@@ -17,6 +17,8 @@ import streamlit as st
 import streamlit.components.v1 as components
 from PIL import Image
 
+from cnn_classifier import CnnClassifier, MODEL_DIR, read_classes
+
 LABELS_DIR = Path(__file__).parent / "labels"
 HOTKEY_LABELS = {
     "w": "R-1",
@@ -302,6 +304,11 @@ def export_dataset(out_path: Path, images_dir: Path) -> None:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
 
+@st.cache_resource(show_spinner="Carregando modelo CNN...")
+def load_cnn_classifier() -> CnnClassifier:
+    return CnnClassifier.from_model_dir(MODEL_DIR)
+
+
 # ── App ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -317,6 +324,17 @@ def main() -> None:
 
     label2catid = {name: i + 1 for i, (name, _) in enumerate(labels)}
     labels_by_name = dict(labels)
+    labels_set = set(labels_by_name)
+
+    cnn_classifier: CnnClassifier | None = None
+    cnn_error: str | None = None
+    cnn_classes: set[str] = set()
+    try:
+        cnn_classes = set(read_classes(MODEL_DIR)) if (MODEL_DIR / "classes.txt").exists() else set()
+        cnn_classifier = load_cnn_classifier()
+        cnn_classes = set(cnn_classifier.classes)
+    except Exception as exc:
+        cnn_error = str(exc)
 
     # ── Sidebar ───────────────────────────────────────────────────────────────
     with st.sidebar:
@@ -356,6 +374,24 @@ def main() -> None:
         st.divider()
         st.caption(f"Saída: `{out_path}`")
         st.caption(f"Labels disponíveis: **{len(labels)}**")
+
+        st.divider()
+        st.markdown("**CNN**")
+        if cnn_classifier is not None:
+            covered = len(cnn_classes & labels_set)
+            st.success(f"Modelo carregado: **{len(cnn_classes)}** classes")
+            st.caption(f"Cobertura no grid: **{covered}/{len(labels_set)}** labels")
+            missing_from_cnn = sorted(labels_set - cnn_classes)
+            if missing_from_cnn:
+                st.caption(
+                    "Fora da CNN: "
+                    + ", ".join(missing_from_cnn[:8])
+                    + ("..." if len(missing_from_cnn) > 8 else "")
+                )
+        else:
+            st.warning("CNN indisponível")
+            if cnn_error:
+                st.caption(cnn_error)
 
         if out_path.exists():
             dataset_dir = out_path.parent / "dataset"
@@ -489,6 +525,7 @@ def main() -> None:
     # ── Linha superior: crop + atalhos + info + botões ───────────────────────
     col_crop, col_hotkeys, col_info = st.columns([3, 2, 2], gap="large")
 
+    crop = None
     with col_crop:
         if img_path.exists():
             img   = Image.open(img_path)
@@ -524,6 +561,32 @@ def main() -> None:
         if score is not None:
             color = "green" if score >= 0.7 else "orange" if score >= 0.5 else "red"
             st.markdown(f"**Score:** :{color}[{score:.1%}]")
+
+        if crop is not None and cnn_classifier is not None:
+            st.divider()
+            st.markdown("**Previsão CNN**")
+            try:
+                cnn_prediction = cnn_classifier.predict(crop)
+                predicted_label = cnn_prediction.label
+                if predicted_label in labels_by_name:
+                    st.image(labels_by_name[predicted_label], width=100)
+                    st.success(f"Prevista: **{predicted_label}** ({cnn_prediction.confidence:.1%})")
+                    if st.button(
+                        "Usar previsão CNN",
+                        disabled=(selected == predicted_label),
+                        use_container_width=True,
+                    ):
+                        st.session_state.selected_label = predicted_label
+                        st.rerun()
+                else:
+                    st.warning(f"CNN previu `{predicted_label}`, mas essa label não existe no grid.")
+
+                with st.expander("Top 3 CNN"):
+                    for label, confidence in cnn_prediction.top_k:
+                        st.caption(f"{label}: {confidence:.1%}")
+            except Exception as exc:
+                st.warning("Não foi possível executar a CNN neste crop.")
+                st.caption(str(exc))
 
         st.divider()
 

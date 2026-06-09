@@ -155,6 +155,37 @@ relabeler/labels/
 └── ...
 ```
 
+### Sugestão automática com CNN
+
+O Relabeler pode carregar uma CNN de classificação registrada no MLflow para
+sugerir a classe de cada crop. Configure o `.env` com:
+
+```bash
+MLFLOW_TRACKING_URI=xxxxxxxxx
+MLFLOW_REGISTERED_MODEL_NAME=traffic_sign_cnn_classifier
+MLFLOW_MODEL_ALIAS=traffic_sign_cnn_v1
+```
+
+Baixe o modelo do MLflow antes de abrir o Relabeler:
+
+```bash
+# a partir de auto-labeling-module/
+uv run python relabeler/cnn_classifier.py
+```
+
+O comando salva os artefatos em:
+
+```
+relabeler/models/cnn_classifier/
+├── best_model.pt
+├── classes.txt
+└── classes.json
+```
+
+O `classes.txt` define as classes cobertas pela CNN. Ela não contém todas as
+labels disponíveis em `relabeler/labels/`, então a sugestão aparece apenas para
+as classes que o modelo conhece; a escolha manual continua disponível para todas.
+
 ### Execução
 
 ```bash
@@ -166,7 +197,8 @@ streamlit run relabeler/app.py
 
 1. **Sidebar** — informe o caminho do `annotations.coco.json` gerado na rotulagem
    e da pasta `images/`
-2. Para cada anotação pendente, o crop da bbox é exibido junto ao score e metadados
+2. Para cada anotação pendente, o crop da bbox é exibido junto ao score,
+   metadados e a sugestão da CNN quando disponível
 3. Escolha a classe correta no grid de labels (ou **⏭ Pular** para deixar para depois)
 4. **✔ Confirmar** — grava imediatamente no arquivo `_relabeled.json`; o progresso
    é persistido a cada clique, podendo fechar e retomar a qualquer momento
