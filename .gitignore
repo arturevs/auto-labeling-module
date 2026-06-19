@@ -1,0 +1,31 @@
+venv/
+.env
+data/
+# detection_models/
+deeptream/
+DeepStream-Yolo/
+old_version/
+persistent_images/
+# ==========================================
+# 1. CACHE E COMPILADOS DO PYTHON
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.log
+logs/
+runs/
+super_gradients_logs/
+.ipynb_checkpoints/
+
+# Pesos de Redes Neurais (PyTorch, YOLO, ONNX, TensorRT)
+*.pth
+*.pt
+*.onnx
+*.engine
+*.weights
+
+dataset_output/
+
+*.mp4

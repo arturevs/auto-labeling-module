@@ -1,0 +1,29 @@
+services:
+  deepstream_dataset:
+    build:
+      context: ./deepstream_processor
+      dockerfile: Dockerfile.deepstream
+    container_name: deepstream_dataset
+    command: deepstream_app_dataset.py
+    runtime: nvidia
+    shm_size: "2gb"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+      - DISPLAY=${DISPLAY}
+      - GST_DEBUG=1
+      - INPUT_DIR=${INPUT_DIR:-data/input}
+    volumes:
+      - ./deepstream_processor:/app
+      - /app/DeepStream-Yolo/nvdsinfer_custom_impl_Yolo
+      - ./dataset_output:/app/dataset_output
+    deploy:
+      resources:
+        limits:
+          cpus: "6.0"
+          memory: 6G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

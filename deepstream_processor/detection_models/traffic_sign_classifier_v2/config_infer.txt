@@ -1,0 +1,17 @@
+[property]
+gpu-id=0
+net-scale-factor=0.01735211
+onnx-file=classifier.onnx
+model-engine-file=classifier.engine
+labelfile-path=labels.txt
+gie-unique-id=2
+operate-on-gie-id=1
+operate-on-class-ids=0
+network-type=1
+batch-size=16
+process-mode=2
+infer-dims=3;160;160
+model-color-format=0
+offsets=123.675;116.28;103.53
+output-blob-names=output_0
+classifier-threshold=0.1

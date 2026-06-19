@@ -1,0 +1,28 @@
+[property]
+gpu-id=0
+onnx-file=model.onnx
+model-engine-file=model.onnx_b1_gpu0_fp16.engine
+labelfile-path=labels.txt
+batch-size=1
+network-mode=2
+num-detected-classes=1
+# net-scale-factor=0.01712475
+net-scale-factor=0.0039215697906911373
+# offsets=123.675;116.28;103.53
+offsets=0;0;0
+gie-unique-id=1
+model-color-format=0
+
+maintain-aspect-ratio=0
+symmetric-padding=0
+network-type=0
+cluster-mode=4
+
+parse-bbox-func-name=NvDsInferParseCustomRTDETR
+# parse-bbox-func-name=NvDsInferParseYolo
+custom-lib-path=../../DeepStream-Yolo/nvdsinfer_custom_impl_Yolo/libnvdsinfer_custom_impl_Yolo.so
+# output-blob-names=save_infer_model/scale_0.tmp_0
+output-blob-names=fetch_name_0
+
+[class-attrs-all]
+pre-cluster-threshold=0.6

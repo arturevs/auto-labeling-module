@@ -1,0 +1,83 @@
+services:
+  # -----------------------------------------------------
+  # 1.NVIDIA DEEPSTREAM
+  # -----------------------------------------------------
+  deepstream_processor:
+    build:
+      context: ./deepstream_processor
+      dockerfile: Dockerfile.deepstream
+    container_name: yolo_deepstream
+    command: deepstream_app.py
+    # tty: true
+    # stdin_open: true
+    runtime: nvidia
+    shm_size: "2gb"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+      - DISPLAY=${DISPLAY}
+      - GST_DEBUG=1
+    volumes:
+      # - ./:/app
+      - ./deepstream_processor:/app
+      - /dev/shm:/app/ram_data
+      # - /ram_data:/app/ram_data
+      - /app/DeepStream-Yolo/nvdsinfer_custom_impl_Yolo
+    deploy:
+      resources:
+        limits:
+          cpus: "6.0"
+          memory: 6G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+  # -----------------------------------------------------
+  # 2. BANCO DE DADOS (POSTGRESQL) - Mantido no Volume Físico
+  # -----------------------------------------------------
+  db:
+    image: postgres:13
+    container_name: edge_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: civi_edge
+      POSTGRES_PASSWORD: civi_edge
+      POSTGRES_DB: civi_edge_db
+    ports:
+      - "5434:5432"
+    volumes:
+      # O banco continua no disco físico para que você não perca
+      # os status se o dispositivo reiniciar!
+      - db_data:/var/lib/postgresql/data
+
+  # -----------------------------------------------------
+  # 3. EDGE BACKEND
+  # -----------------------------------------------------
+  edge_backend:
+    build:
+      context: ./edge-backend
+    container_name: edge_backend
+    restart: unless-stopped
+    # user: "${UID:-1000}:${GID:-1000}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - db
+      - deepstream_processor
+    environment:
+      - POSTGRES_USER=civi_edge
+      - POSTGRES_PASSWORD=civi_edge
+      - POSTGRES_DB=civi_edge_db
+      - DATABASE_URL=postgresql://civi_edge:civi_edge@db:5432/civi_edge_db
+
+      - INCOMING_PATH=/app/ram_data
+      # IMAGE_STORAGE_PATH grava as imagens validadas no DISCO FÍSICO
+      - IMAGE_STORAGE_PATH=/app/storage/images
+    volumes:
+      # Compartilha a MESMA área de RAM com o Edge Backend
+      - /dev/shm:/app/ram_data
+      # - /ram_data:/app/ram_data
+      - ./persistent_images:/app/storage/images
+volumes:
+  db_data:

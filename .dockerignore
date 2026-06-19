@@ -1,0 +1,3 @@
+venv/
+deepstream_processor/detection_models/*.pth
+deepstream_processor/old_models/

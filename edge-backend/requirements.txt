@@ -1,0 +1,7 @@
+# ORM (Mapeamento Objeto-Relacional) para interagir mais facil com tabelas
+SQLAlchemy==2.0.23
+
+# Driver recomendado (em C) para o Python conversar diretamente com o PostgreSQL
+psycopg2-binary==2.9.9
+
+requests==2.31.0
