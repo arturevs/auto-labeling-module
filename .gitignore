@@ -22,7 +22,6 @@ super_gradients_logs/
 # Pesos de Redes Neurais (PyTorch, YOLO, ONNX, TensorRT)
 *.pth
 *.pt
-*.onnx
 *.engine
 *.weights
 
